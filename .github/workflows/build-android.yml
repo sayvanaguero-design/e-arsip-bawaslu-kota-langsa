@@ -36,6 +36,9 @@ jobs:
       - name: Generate Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
 
+      - name: Periksa daftar modul Expo
+        run: npx expo-modules-autolinking resolve --platform android
+
       - name: Build APK
         working-directory: android
         run: |
