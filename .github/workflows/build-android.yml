@@ -39,15 +39,15 @@ jobs:
       - name: Periksa daftar modul Expo
         run: npx expo-modules-autolinking resolve --platform android
 
-      - name: Build APK
+      - name: Build APK Release
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease
 
       - name: Simpan APK
         uses: actions/upload-artifact@v4
         with:
-          name: e-arsip-bawaslu-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: e-arsip-bawaslu-apk-release
+          path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 7
