@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "e-Arsip Bawaslu Kota Langsa",
+    "slug": "e-arsip-bawaslu-langsa",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#12345A"
+    },
+    "android": {
+      "package": "com.bawaslu.langsa.earsip",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#12345A"
+      }
+    }
+  }
+}
