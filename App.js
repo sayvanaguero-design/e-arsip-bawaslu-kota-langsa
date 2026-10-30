@@ -1,21 +1,44 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform,
-  SafeAreaView, ScrollView, StyleSheet, Text, TextInput,
-  TouchableOpacity, View
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  StatusBar as RNStatusBar
 } from "react-native";
+
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Clipboard from "expo-clipboard";
+import * as Sharing from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
+
 import {
-  initDb, allDocuments, saveDocument, deleteDocument
+  initDb,
+  allDocuments,
+  saveDocument,
+  deleteDocument
 } from "./database";
+
 import AuthScreen from "./AuthScreen";
 
 const CATEGORIES = [
-  "Umum", "Keuangan", "Kepegawaian", "Kontrak",
-  "Legal", "Operasional", "Lainnya"
+  "Umum",
+  "Keuangan",
+  "Kepegawaian",
+  "Kontrak",
+  "Legal",
+  "Operasional",
+  "Lainnya"
 ];
 
 const EMPTY = {
@@ -35,6 +58,7 @@ export default function App() {
   const [docs, setDocs] = useState([]);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(false);
+  const [actionDoc, setActionDoc] = useState(null);
   const [form, setForm] = useState({ ...EMPTY });
   const [session, setSession] = useState(null);
   const [ready, setReady] = useState(false);
@@ -77,8 +101,207 @@ export default function App() {
   }
 
   function editDoc(item) {
+    setActionDoc(null);
     setForm({ ...item });
     setModal(true);
+  }
+
+  function documentInfo(item) {
+    return [
+      `Nama dokumen: ${item.title || "-"}`,
+      `Nomor dokumen: ${item.doc_number || "-"}`,
+      `Kategori: ${item.category || "-"}`,
+      `Jenis arsip: ${item.doc_type || "-"}`,
+      `Tanggal: ${item.doc_date || "-"}`,
+      `Pengirim/Penerima: ${item.sender_receiver || "-"}`,
+      `Catatan: ${item.notes || "-"}`,
+      `Nama lampiran: ${item.file_name || "-"}`
+    ].join("\n");
+  }
+
+  async function copyDocumentInfo(item) {
+    try {
+      await Clipboard.setStringAsync(documentInfo(item));
+      Alert.alert(
+        "Berhasil",
+        "Informasi dokumen berhasil disalin."
+      );
+    } catch (error) {
+      Alert.alert(
+        "Gagal menyalin",
+        String(error?.message || error)
+      );
+    }
+  }
+
+  async function openAttachment(item) {
+    if (!item.file_uri) {
+      Alert.alert(
+        "Lampiran tidak tersedia",
+        "Dokumen ini tidak memiliki lampiran."
+      );
+      return;
+    }
+
+    try {
+      const info = await FileSystem.getInfoAsync(item.file_uri);
+
+      if (!info.exists) {
+        Alert.alert(
+          "File tidak ditemukan",
+          "Lampiran mungkin sudah dipindahkan atau dihapus."
+        );
+        return;
+      }
+
+      const available = await Sharing.isAvailableAsync();
+
+      if (!available) {
+        Alert.alert(
+          "Tidak tersedia",
+          "Fitur membuka atau membagikan file tidak tersedia pada perangkat ini."
+        );
+        return;
+      }
+
+      await Sharing.shareAsync(item.file_uri, {
+        dialogTitle: "Buka atau bagikan lampiran",
+        mimeType: item.file_name?.toLowerCase().endsWith(".pdf")
+          ? "application/pdf"
+          : undefined
+      });
+    } catch (error) {
+      Alert.alert(
+        "Gagal membuka lampiran",
+        String(error?.message || error)
+      );
+    }
+  }
+
+  async function shareAttachment(item) {
+    if (!item.file_uri) {
+      Alert.alert(
+        "Lampiran tidak tersedia",
+        "Dokumen ini tidak memiliki file lampiran."
+      );
+      return;
+    }
+
+    try {
+      const info = await FileSystem.getInfoAsync(item.file_uri);
+
+      if (!info.exists) {
+        Alert.alert(
+          "File tidak ditemukan",
+          "Lampiran tidak ditemukan di penyimpanan aplikasi."
+        );
+        return;
+      }
+
+      const available = await Sharing.isAvailableAsync();
+
+      if (!available) {
+        Alert.alert(
+          "Tidak tersedia",
+          "Perangkat tidak mendukung fitur berbagi file."
+        );
+        return;
+      }
+
+      await Sharing.shareAsync(item.file_uri, {
+        dialogTitle: "Bagikan lampiran"
+      });
+    } catch (error) {
+      Alert.alert(
+        "Gagal membagikan file",
+        String(error?.message || error)
+      );
+    }
+  }
+
+  async function copyOriginalFile(item) {
+    if (!item.file_uri) {
+      Alert.alert(
+        "Lampiran tidak tersedia",
+        "Dokumen ini tidak memiliki file lampiran."
+      );
+      return;
+    }
+
+    try {
+      const info = await FileSystem.getInfoAsync(item.file_uri);
+
+      if (!info.exists) {
+        Alert.alert(
+          "File tidak ditemukan",
+          "Lampiran tidak ditemukan di penyimpanan aplikasi."
+        );
+        return;
+      }
+
+      if (Platform.OS !== "android") {
+        Alert.alert(
+          "Informasi",
+          "Pemilihan folder langsung saat ini tersedia untuk Android."
+        );
+        return;
+      }
+
+      const permission =
+        await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          "Izin dibatalkan",
+          "Pilih folder tujuan agar file dapat disalin."
+        );
+        return;
+      }
+
+      const originalName =
+        item.file_name || "dokumen";
+
+      const safeName = originalName.replace(
+        /[\\/:*?"<>|]/g,
+        "_"
+      );
+
+      const destination =
+        await FileSystem.StorageAccessFramework.createFileAsync(
+          permission.directoryUri,
+          safeName,
+          "application/octet-stream"
+        );
+
+      const content = await FileSystem.readAsStringAsync(
+        item.file_uri,
+        {
+          encoding: FileSystem.EncodingType.Base64
+        }
+      );
+
+      await FileSystem.writeAsStringAsync(
+        destination,
+        content,
+        {
+          encoding: FileSystem.EncodingType.Base64
+        }
+      );
+
+      Alert.alert(
+        "Berhasil",
+        `File berhasil disalin ke folder yang kamu pilih:\n${safeName}`
+      );
+    } catch (error) {
+      Alert.alert(
+        "Gagal menyalin file",
+        String(error?.message || error)
+      );
+    }
+  }
+
+  function showDocumentActions(item) {
+    setActionDoc(item);
   }
 
   async function pickFile() {
@@ -173,6 +396,8 @@ export default function App() {
   }
 
   function remove(item) {
+    setActionDoc(null);
+
     Alert.alert(
       "Hapus dokumen",
       `Hapus "${item.title}" dari arsip lokal?`,
@@ -228,8 +453,10 @@ export default function App() {
 
   const DocRow = ({ item }) => (
     <TouchableOpacity
-      onPress={() => editDoc(item)}
+      onPress={() => showDocumentActions(item)}
       onLongPress={() => remove(item)}
+      delayLongPress={450}
+      activeOpacity={0.75}
       style={styles.docRow}
     >
       <View style={styles.fileIcon}>
@@ -248,6 +475,12 @@ export default function App() {
         <Text style={styles.muted}>
           {item.doc_type} • {item.doc_date || "-"}
         </Text>
+
+        {!!item.file_name && (
+          <Text style={styles.fileName}>
+            📎 {item.file_name}
+          </Text>
+        )}
       </View>
 
       <Text
@@ -294,8 +527,9 @@ export default function App() {
         <TouchableOpacity
           onPress={() => setSession(null)}
           style={styles.logout}
+          activeOpacity={0.7}
         >
-          <Text style={{ color: "#fff", fontWeight: "700" }}>
+          <Text style={styles.logoutText}>
             Keluar
           </Text>
         </TouchableOpacity>
@@ -443,11 +677,104 @@ export default function App() {
           />
 
           <Text style={styles.hint}>
-            Ketuk dokumen untuk mengedit. Tekan lama untuk menghapus.
+            Ketuk dokumen untuk melihat tindakan. Tekan lama untuk menghapus.
           </Text>
         </View>
       )}
 
+      {/* MENU TINDAKAN ARSIP */}
+      <Modal
+        visible={!!actionDoc}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActionDoc(null)}
+      >
+        <View style={styles.actionOverlay}>
+          <View style={styles.actionPanel}>
+            <Text style={styles.actionTitle}>
+              Tindakan dokumen
+            </Text>
+
+            <Text style={styles.actionSubtitle}>
+              {actionDoc?.title || ""}
+            </Text>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                const item = actionDoc;
+                setActionDoc(null);
+                if (item) openAttachment(item);
+              }}
+            >
+              <Text style={styles.menuItemText}>
+                📄 Buka / lihat lampiran
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                const item = actionDoc;
+                setActionDoc(null);
+                if (item) copyOriginalFile(item);
+              }}
+            >
+              <Text style={styles.menuItemText}>
+                📁 Salin file asli ke HP
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                const item = actionDoc;
+                setActionDoc(null);
+                if (item) copyDocumentInfo(item);
+              }}
+            >
+              <Text style={styles.menuItemText}>
+                📋 Salin informasi dokumen
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                const item = actionDoc;
+                setActionDoc(null);
+                if (item) shareAttachment(item);
+              }}
+            >
+              <Text style={styles.menuItemText}>
+                ↗ Bagikan lampiran
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                if (actionDoc) editDoc(actionDoc);
+              }}
+            >
+              <Text style={styles.menuItemText}>
+                ✏️ Edit informasi dokumen
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.menuItem, styles.closeMenu]}
+              onPress={() => setActionDoc(null)}
+            >
+              <Text style={styles.closeMenuText}>
+                Batal
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* FORM TAMBAH DAN EDIT */}
       <Modal
         visible={modal}
         animationType="slide"
@@ -478,12 +805,6 @@ export default function App() {
               <TouchableOpacity
                 onPress={submit}
                 activeOpacity={0.6}
-                hitSlop={{
-                  top: 15,
-                  bottom: 15,
-                  left: 15,
-                  right: 15
-                }}
                 disabled={saving}
                 style={styles.saveButton}
               >
@@ -653,15 +974,8 @@ export default function App() {
 
               {!!form.file_uri && (
                 <Action
-                  label="Buka lampiran lokal"
-                  onPress={() =>
-                    Linking.openURL(form.file_uri).catch(() =>
-                      Alert.alert(
-                        "Tidak dapat membuka file",
-                        "Gunakan aplikasi pembaca file yang sesuai."
-                      )
-                    )
-                  }
+                  label="Buka / bagikan lampiran"
+                  onPress={() => openAttachment(form)}
                 />
               )}
 
@@ -690,7 +1004,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: "#12345A",
     paddingHorizontal: 22,
-    paddingTop: 18,
+    paddingTop: (RNStatusBar.currentHeight || 0) + 14,
     paddingBottom: 20
   },
   brand: {
@@ -702,12 +1016,24 @@ const styles = StyleSheet.create({
   headerSub: {
     color: "#C4D5E8",
     marginTop: 4,
-    fontSize: 12
+    fontSize: 12,
+    paddingRight: 85
   },
   logout: {
     position: "absolute",
-    right: 18,
-    top: 20
+    right: 16,
+    top: (RNStatusBar.currentHeight || 0) + 8,
+    minWidth: 68,
+    minHeight: 46,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#244A70",
+    borderRadius: 9
+  },
+  logoutText: {
+    color: "#fff",
+    fontWeight: "700"
   },
   tabs: {
     flexDirection: "row",
@@ -822,6 +1148,11 @@ const styles = StyleSheet.create({
     color: "#233A58",
     fontSize: 13
   },
+  fileName: {
+    color: "#55718D",
+    fontSize: 11,
+    marginTop: 4
+  },
   search: {
     backgroundColor: "#fff",
     borderRadius: 10,
@@ -849,36 +1180,45 @@ const styles = StyleSheet.create({
   },
   modalSafe: {
     flex: 1,
-    backgroundColor: "#F4F7FA"
+    backgroundColor: "#F4F7FA",
+    paddingTop: Platform.OS === "android"
+      ? (RNStatusBar.currentHeight || 0)
+      : 0
   },
   modalHeader: {
-    height: 56,
+    minHeight: 66,
     backgroundColor: "#fff",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 17,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderColor: "#E6EBF1"
   },
   headerButton: {
-    minWidth: 55,
-    minHeight: 48,
-    justifyContent: "center"
+    minWidth: 68,
+    minHeight: 52,
+    paddingHorizontal: 8,
+    justifyContent: "center",
+    alignItems: "center"
   },
   cancel: {
-    color: "#6D7B8E"
+    color: "#6D7B8E",
+    fontWeight: "700",
+    fontSize: 14
   },
   modalTitle: {
     fontWeight: "800",
-    color: "#203A58"
+    color: "#203A58",
+    fontSize: 14
   },
   saveButton: {
-    minWidth: 85,
-    minHeight: 48,
+    minWidth: 88,
+    minHeight: 52,
     paddingHorizontal: 10,
     alignItems: "center",
-    justifyContent: "center"
+    justifyContent: "center",
+    borderRadius: 8
   },
   save: {
     color: "#1769AA",
@@ -931,5 +1271,49 @@ const styles = StyleSheet.create({
   },
   chipTextOn: {
     color: "#fff"
+  },
+  actionOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    padding: 22
+  },
+  actionPanel: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 18
+  },
+  actionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#203A58"
+  },
+  actionSubtitle: {
+    color: "#7C899B",
+    fontSize: 13,
+    marginTop: 5,
+    marginBottom: 12
+  },
+  menuItem: {
+    minHeight: 49,
+    justifyContent: "center",
+    borderBottomWidth: 1,
+    borderColor: "#EDF0F4",
+    paddingVertical: 9
+  },
+  menuItemText: {
+    color: "#29445F",
+    fontWeight: "600",
+    fontSize: 14
+  },
+  closeMenu: {
+    borderBottomWidth: 0,
+    alignItems: "center",
+    marginTop: 5
+  },
+  closeMenuText: {
+    color: "#1769AA",
+    fontWeight: "800",
+    fontSize: 14
   }
 });
