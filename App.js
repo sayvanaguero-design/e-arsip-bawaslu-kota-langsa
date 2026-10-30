@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform,
@@ -34,12 +35,14 @@ export default function App() {
   const [docs, setDocs] = useState([]);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState(EMPTY);
+  const [form, setForm] = useState({ ...EMPTY });
   const [session, setSession] = useState(null);
   const [ready, setReady] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   async function refresh() {
-    setDocs(await allDocuments());
+    const rows = await allDocuments();
+    setDocs(rows);
   }
 
   useEffect(() => {
@@ -48,7 +51,10 @@ export default function App() {
         await initDb();
         await refresh();
       } catch (error) {
-        Alert.alert("Gagal membuka database", String(error?.message || error));
+        Alert.alert(
+          "Gagal membuka database",
+          String(error?.message || error)
+        );
       } finally {
         setReady(true);
       }
@@ -56,8 +62,13 @@ export default function App() {
   }, []);
 
   const filtered = useMemo(() => docs.filter(d =>
-    [d.title, d.doc_number, d.category, d.sender_receiver, d.doc_type]
-      .join(" ").toLowerCase().includes(search.toLowerCase())
+    [
+      d.title,
+      d.doc_number,
+      d.category,
+      d.sender_receiver,
+      d.doc_type
+    ].join(" ").toLowerCase().includes(search.toLowerCase())
   ), [docs, search]);
 
   function newDoc() {
@@ -94,7 +105,11 @@ export default function App() {
         intermediates: true
       });
 
-      const safeName = asset.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const safeName = asset.name.replace(
+        /[^a-zA-Z0-9._-]/g,
+        "_"
+      );
+
       const destination = `${dir}${Date.now()}_${safeName}`;
 
       await FileSystem.copyAsync({
@@ -110,23 +125,50 @@ export default function App() {
         download_url: null
       }));
     } catch (error) {
-      Alert.alert("Gagal memilih lampiran", String(error?.message || error));
+      Alert.alert(
+        "Gagal memilih lampiran",
+        String(error?.message || error)
+      );
     }
   }
 
   async function submit() {
-    if (!form.title.trim()) {
-      Alert.alert("Data belum lengkap", "Nama/judul dokumen wajib diisi.");
+    if (saving) return;
+
+    const title = String(form.title || "").trim();
+
+    if (!title) {
+      Alert.alert(
+        "Data belum lengkap",
+        "Nama/judul dokumen wajib diisi."
+      );
       return;
     }
 
+    setSaving(true);
+
     try {
-      await saveDocument(form);
-      setModal(false);
+      await saveDocument({
+        ...form,
+        title
+      });
+
       await refresh();
-      Alert.alert("Tersimpan", "Dokumen disimpan di perangkat ini.");
+
+      setModal(false);
+      setForm({ ...EMPTY });
+
+      Alert.alert(
+        "Berhasil",
+        "Dokumen berhasil disimpan di perangkat ini."
+      );
     } catch (error) {
-      Alert.alert("Gagal menyimpan", String(error?.message || error));
+      Alert.alert(
+        "Gagal menyimpan",
+        String(error?.message || error)
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -135,7 +177,10 @@ export default function App() {
       "Hapus dokumen",
       `Hapus "${item.title}" dari arsip lokal?`,
       [
-        { text: "Batal", style: "cancel" },
+        {
+          text: "Batal",
+          style: "cancel"
+        },
         {
           text: "Hapus",
           style: "destructive",
@@ -144,7 +189,10 @@ export default function App() {
               await deleteDocument(item.id);
               await refresh();
             } catch (error) {
-              Alert.alert("Gagal menghapus", String(error?.message || error));
+              Alert.alert(
+                "Gagal menghapus",
+                String(error?.message || error)
+              );
             }
           }
         }
@@ -153,18 +201,26 @@ export default function App() {
   }
 
   const Card = ({ children, style }) => (
-    <View style={[styles.card, style]}>{children}</View>
+    <View style={[styles.card, style]}>
+      {children}
+    </View>
   );
 
   const Action = ({ label, onPress, primary = false }) => (
     <TouchableOpacity
       onPress={onPress}
-      style={[styles.action, primary && styles.primary]}
+      activeOpacity={0.7}
+      style={[
+        styles.action,
+        primary && styles.primary
+      ]}
     >
-      <Text style={[
-        styles.actionText,
-        primary && { color: "#fff" }
-      ]}>
+      <Text
+        style={[
+          styles.actionText,
+          primary && { color: "#fff" }
+        ]}
+      >
         {label}
       </Text>
     </TouchableOpacity>
@@ -179,20 +235,32 @@ export default function App() {
       <View style={styles.fileIcon}>
         <Text style={{ fontSize: 20 }}>▤</Text>
       </View>
+
       <View style={{ flex: 1 }}>
-        <Text style={styles.docTitle}>{item.title}</Text>
+        <Text style={styles.docTitle}>
+          {item.title}
+        </Text>
+
         <Text style={styles.muted}>
           {item.doc_number || "Tanpa nomor"} • {item.category || "Umum"}
         </Text>
+
         <Text style={styles.muted}>
           {item.doc_type} • {item.doc_date || "-"}
         </Text>
       </View>
-      <Text style={{ color: item.synced ? "#16A36A" : "#D18A20" }}>
+
+      <Text
+        style={{
+          color: item.synced ? "#16A36A" : "#D18A20"
+        }}
+      >
         {item.synced ? "●" : "○"}
       </Text>
     </TouchableOpacity>
-  );  if (!ready) {
+  );
+
+  if (!ready) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
@@ -213,7 +281,10 @@ export default function App() {
       <StatusBar style="light" />
 
       <View style={styles.header}>
-        <Text style={styles.brand}>E-ARSIP KANTOR</Text>
+        <Text style={styles.brand}>
+          E-ARSIP KANTOR
+        </Text>
+
         <Text style={styles.headerSub}>
           {session.displayName} •
           {session.role === "admin" ? "Administrator" : "Pegawai"}
@@ -240,10 +311,12 @@ export default function App() {
               tab === value && styles.tabActive
             ]}
           >
-            <Text style={[
-              styles.tabText,
-              tab === value && styles.tabTextActive
-            ]}>
+            <Text
+              style={[
+                styles.tabText,
+                tab === value && styles.tabTextActive
+              ]}
+            >
               {value}
             </Text>
           </TouchableOpacity>
@@ -252,40 +325,55 @@ export default function App() {
 
       {tab === "Beranda" ? (
         <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.greeting}>Selamat datang 👋</Text>
+          <Text style={styles.greeting}>
+            Selamat datang 👋
+          </Text>
+
           <Text style={styles.muted}>
             Kelola arsip kantor dalam satu aplikasi.
           </Text>
 
           <View style={styles.stats}>
             <Card style={styles.statCard}>
-              <Text style={styles.statNum}>{docs.length}</Text>
-              <Text style={styles.muted}>Total dokumen</Text>
+              <Text style={styles.statNum}>
+                {docs.length}
+              </Text>
+              <Text style={styles.muted}>
+                Total dokumen
+              </Text>
             </Card>
 
             <Card style={styles.statCard}>
               <Text style={styles.statNum}>
                 {docs.filter(d => d.doc_type === "Surat Masuk").length}
               </Text>
-              <Text style={styles.muted}>Surat masuk</Text>
+              <Text style={styles.muted}>
+                Surat masuk
+              </Text>
             </Card>
 
             <Card style={styles.statCard}>
               <Text style={styles.statNum}>
                 {docs.filter(d => d.doc_type === "Surat Keluar").length}
               </Text>
-              <Text style={styles.muted}>Surat keluar</Text>
+              <Text style={styles.muted}>
+                Surat keluar
+              </Text>
             </Card>
           </View>
 
           <Card>
-            <Text style={styles.sectionTitle}>Akses cepat</Text>
+            <Text style={styles.sectionTitle}>
+              Akses cepat
+            </Text>
+
             <View style={styles.quickRow}>
               <Action
                 label="+ Tambah dokumen"
                 primary
                 onPress={newDoc}
               />
+
               <Action
                 label="Lihat arsip"
                 onPress={() => setTab("Semua Arsip")}
@@ -294,17 +382,24 @@ export default function App() {
           </Card>
 
           <Card>
-            <Text style={styles.sectionTitle}>Penyimpanan</Text>
+            <Text style={styles.sectionTitle}>
+              Penyimpanan
+            </Text>
+
             <Text style={styles.muted}>
               Mode offline aktif. Semua data dan lampiran disimpan
               di perangkat ini.
             </Text>
+
             <Text style={styles.muted}>
               Sinkronisasi cloud belum diaktifkan pada versi ini.
             </Text>
           </Card>
 
-          <Text style={styles.sectionTitle}>Dokumen terbaru</Text>
+          <Text style={styles.sectionTitle}>
+            Dokumen terbaru
+          </Text>
+
           {docs.slice(0, 4).map(item => (
             <DocRow key={item.id} item={item} />
           ))}
@@ -326,6 +421,7 @@ export default function App() {
             <Text style={styles.sectionTitle}>
               Semua arsip ({filtered.length})
             </Text>
+
             <Action
               label="+ Tambah"
               primary
@@ -336,7 +432,9 @@ export default function App() {
           <FlatList
             data={filtered}
             keyExtractor={item => String(item.id)}
-            renderItem={({ item }) => <DocRow item={item} />}
+            renderItem={({ item }) => (
+              <DocRow item={item} />
+            )}
             ListEmptyComponent={
               <Text style={styles.empty}>
                 Belum ada dokumen. Tekan Tambah untuk memulai.
@@ -353,7 +451,9 @@ export default function App() {
       <Modal
         visible={modal}
         animationType="slide"
-        onRequestClose={() => setModal(false)}
+        onRequestClose={() => {
+          if (!saving) setModal(false);
+        }}
       >
         <SafeAreaView style={styles.modalSafe}>
           <KeyboardAvoidingView
@@ -361,115 +461,183 @@ export default function App() {
             style={{ flex: 1 }}
           >
             <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setModal(false)}>
-                <Text style={styles.cancel}>Batal</Text>
+              <TouchableOpacity
+                onPress={() => setModal(false)}
+                disabled={saving}
+                style={styles.headerButton}
+              >
+                <Text style={styles.cancel}>
+                  Batal
+                </Text>
               </TouchableOpacity>
 
               <Text style={styles.modalTitle}>
                 {form.id ? "Edit dokumen" : "Dokumen baru"}
               </Text>
 
-              <TouchableOpacity onPress={submit}>
-                <Text style={styles.save}>Simpan</Text>
+              <TouchableOpacity
+                onPress={submit}
+                activeOpacity={0.6}
+                hitSlop={{
+                  top: 15,
+                  bottom: 15,
+                  left: 15,
+                  right: 15
+                }}
+                disabled={saving}
+                style={styles.saveButton}
+              >
+                <Text style={styles.save}>
+                  {saving ? "Menyimpan..." : "Simpan"}
+                </Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={styles.form}>
-              <Text style={styles.label}>Nama / judul dokumen *</Text>
+            <ScrollView
+              contentContainerStyle={styles.form}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.label}>
+                Nama / judul dokumen *
+              </Text>
+
               <TextInput
                 style={styles.input}
                 value={form.title}
                 onChangeText={value =>
-                  setForm(old => ({ ...old, title: value }))
+                  setForm(old => ({
+                    ...old,
+                    title: value
+                  }))
                 }
                 placeholder="Contoh: Surat Undangan Rapat"
               />
 
-              <Text style={styles.label}>Jenis arsip</Text>
+              <Text style={styles.label}>
+                Jenis arsip
+              </Text>
+
               <View style={styles.chips}>
                 {["Surat Masuk", "Surat Keluar", "Dokumen Umum"].map(value => (
                   <TouchableOpacity
                     key={value}
                     onPress={() =>
-                      setForm(old => ({ ...old, doc_type: value }))
+                      setForm(old => ({
+                        ...old,
+                        doc_type: value
+                      }))
                     }
                     style={[
                       styles.chip,
                       form.doc_type === value && styles.chipOn
                     ]}
                   >
-                    <Text style={
-                      form.doc_type === value
-                        ? styles.chipTextOn
-                        : styles.chipText
-                    }>
+                    <Text
+                      style={
+                        form.doc_type === value
+                          ? styles.chipTextOn
+                          : styles.chipText
+                      }
+                    >
                       {value}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              <Text style={styles.label}>Nomor dokumen</Text>
+              <Text style={styles.label}>
+                Nomor dokumen
+              </Text>
+
               <TextInput
                 style={styles.input}
                 value={form.doc_number || ""}
                 onChangeText={value =>
-                  setForm(old => ({ ...old, doc_number: value }))
+                  setForm(old => ({
+                    ...old,
+                    doc_number: value
+                  }))
                 }
                 placeholder="Nomor surat / dokumen"
               />
 
-              <Text style={styles.label}>Kategori</Text>
+              <Text style={styles.label}>
+                Kategori
+              </Text>
+
               <View style={styles.chips}>
                 {CATEGORIES.map(value => (
                   <TouchableOpacity
                     key={value}
                     onPress={() =>
-                      setForm(old => ({ ...old, category: value }))
+                      setForm(old => ({
+                        ...old,
+                        category: value
+                      }))
                     }
                     style={[
                       styles.chip,
                       form.category === value && styles.chipOn
                     ]}
                   >
-                    <Text style={
-                      form.category === value
-                        ? styles.chipTextOn
-                        : styles.chipText
-                    }>
+                    <Text
+                      style={
+                        form.category === value
+                          ? styles.chipTextOn
+                          : styles.chipText
+                      }
+                    >
                       {value}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              <Text style={styles.label}>Tanggal (YYYY-MM-DD)</Text>
+              <Text style={styles.label}>
+                Tanggal (YYYY-MM-DD)
+              </Text>
+
               <TextInput
                 style={styles.input}
                 value={form.doc_date || ""}
                 onChangeText={value =>
-                  setForm(old => ({ ...old, doc_date: value }))
+                  setForm(old => ({
+                    ...old,
+                    doc_date: value
+                  }))
                 }
                 placeholder="2026-10-30"
               />
 
-              <Text style={styles.label}>Pengirim / penerima</Text>
+              <Text style={styles.label}>
+                Pengirim / penerima
+              </Text>
+
               <TextInput
                 style={styles.input}
                 value={form.sender_receiver || ""}
                 onChangeText={value =>
-                  setForm(old => ({ ...old, sender_receiver: value }))
+                  setForm(old => ({
+                    ...old,
+                    sender_receiver: value
+                  }))
                 }
                 placeholder="Nama instansi / orang"
               />
 
-              <Text style={styles.label}>Catatan</Text>
+              <Text style={styles.label}>
+                Catatan
+              </Text>
+
               <TextInput
                 style={[styles.input, styles.notes]}
                 multiline
                 value={form.notes || ""}
                 onChangeText={value =>
-                  setForm(old => ({ ...old, notes: value }))
+                  setForm(old => ({
+                    ...old,
+                    notes: value
+                  }))
                 }
                 placeholder="Keterangan tambahan"
               />
@@ -507,7 +675,9 @@ export default function App() {
       </Modal>
     </SafeAreaView>
   );
-}const styles = StyleSheet.create({
+}
+
+const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: "#F3F6FA"
@@ -691,6 +861,11 @@ export default function App() {
     borderBottomWidth: 1,
     borderColor: "#E6EBF1"
   },
+  headerButton: {
+    minWidth: 55,
+    minHeight: 48,
+    justifyContent: "center"
+  },
   cancel: {
     color: "#6D7B8E"
   },
@@ -698,9 +873,17 @@ export default function App() {
     fontWeight: "800",
     color: "#203A58"
   },
+  saveButton: {
+    minWidth: 85,
+    minHeight: 48,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center"
+  },
   save: {
     color: "#1769AA",
-    fontWeight: "800"
+    fontWeight: "800",
+    fontSize: 14
   },
   form: {
     padding: 18,
